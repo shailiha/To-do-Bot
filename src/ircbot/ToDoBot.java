@@ -22,6 +22,7 @@ import org.joda.time.MutableDateTime;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormat;
 import java.sql.*;
+import org.joda.time.DateTimeZone;
 
 public class ToDoBot {
 
@@ -30,21 +31,21 @@ public class ToDoBot {
             + "OR ~todo @dd/MM/yyyy [message] OR ~todo @hh:mm [message]";
 
     //Create connection to server and while there is input to read, read it!
-    public static void main(String args[]) throws UnknownHostException, IOException, ClassNotFoundException {
+    public static void main(String args[]) throws UnknownHostException, IOException, ClassNotFoundException, SQLException {
         //Try to connect to the database
         Connection dbConn = null;
         try {
             dbConn = createDatabaseConnection();
             DatabaseMetaData meta = dbConn.getMetaData();
-            ResultSet results = meta.getTables(null, null, "todo3", null);
+            ResultSet results = meta.getTables(null, null, "ToDoList", null);
             Statement stat = dbConn.createStatement();
             if (!results.next()) {
                 System.out.println("Creating table");
-                stat.execute("CREATE TABLE todo3 (date TEXT NOT NULL, time TEXT NOT NULL, user TEXT NOT NULL, todo TEXT NOT NULL);");
-                stat.executeUpdate("INSERT INTO todo3 VALUES ('0', '0', '0', '0');");
+                stat.execute("CREATE TABLE ToDoList (date TEXT NOT NULL, time TEXT NOT NULL, user TEXT NOT NULL, todo TEXT NOT NULL);");
+                stat.executeUpdate("INSERT INTO ToDoList VALUES ('0', '0', '0', '0');");
             } else {
                 System.out.println("Table exists");
-                ResultSet rs = stat.executeQuery("SELECT * FROM todo3;");
+                /*ResultSet rs = stat.executeQuery("SELECT * FROM ToDoList;");
                 while (rs.next()) {
                     System.out.print(rs.getString("date"));
                     System.out.print(" ");
@@ -52,8 +53,8 @@ public class ToDoBot {
                     System.out.print(" ");
                     System.out.print(rs.getString("user"));
                     System.out.print(" ");
-                    System.out.print(rs.getString("todo"));
-                }
+                    System.out.println(rs.getString("todo"));
+                }*/
             }
         } catch (SQLException ex) {
             Logger.getLogger(ToDoBot.class.getName()).log(Level.SEVERE, null, ex);
@@ -94,7 +95,7 @@ public class ToDoBot {
 
     static Connection createDatabaseConnection() throws ClassNotFoundException, SQLException {
         Class.forName("org.sqlite.JDBC");
-        Connection conn = DriverManager.getConnection("jdbc:sqlite:todoList2.db");
+        Connection conn = DriverManager.getConnection("jdbc:sqlite:todoList.db");
         return conn;
     }
 
@@ -116,7 +117,7 @@ public class ToDoBot {
     }
 
     //Read input line. If line is a PING, return PONG, else check message type.
-    static void monitorInputStream(Socket socket, String inputLine, Connection dbConn) throws IOException {
+    static void monitorInputStream(Socket socket, String inputLine, Connection dbConn) throws IOException, SQLException {
         if (inputLine.startsWith("PING :codd.uwcs.co.uk")) {
             PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
             System.out.println("PING :codd.uwcs.co.uk");
@@ -262,7 +263,7 @@ public class ToDoBot {
     //Check each message for a bot command or request.
     //Messages to the bot can begin with '~' or '[botname]: '
     //Call respondToCommands if user has permissions, else just call respondToAlias
-    static void checkForCommands(ParsedMessage pm, Socket socket, Connection dbConn) throws IOException {
+    static void checkForCommands(ParsedMessage pm, Socket socket, Connection dbConn) throws IOException, SQLException {
         boolean possibleCommand = true;
         if (pm.message.startsWith("~")) {
             pm.message = pm.message.substring(1);
@@ -313,39 +314,64 @@ public class ToDoBot {
 
     //Method for dealing with possible user requests.
     //Requests currently include hi, coo, flip and todo
-    static void respondToAlias(ParsedMessage pm, Socket socket, Connection dbConn) throws IOException {
+    static void respondToAlias(ParsedMessage pm, Socket socket, Connection dbConn) throws IOException, SQLException {
         PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
         String message = pm.message;
-        StringBuilder reply = new StringBuilder("PRIVMSG ").append(pm.channel).append(" :").append(pm.username).append(": ");
+        StringBuilder reply = null;
+        if (message.startsWith("todotoday")){
+            reply = privateReply(pm, dbConn);
+        } else {     
+            reply = new StringBuilder("PRIVMSG ").append(pm.channel).append(" :").append(pm.username).append(": ");
 
-        if (message.startsWith("Hi") || message.startsWith("hi")) {
-            reply.append("Hi!");
-        } else if (message.startsWith("coo")) {
-            reply.append("coo!");
-        } else if (message.startsWith("flip")) {
-            System.out.println("Flip!");
-            String flip = flipACoin();
-            reply.append(flip);
-        } else if (message.startsWith("todo") || message.startsWith("Todo") || message.startsWith("ToDo")) {
-            ParsedTodoCommand toDo = null;
-            try {
-                toDo = newTodo(pm, dbConn);
-            } catch (SQLException ex) {
-                Logger.getLogger(ToDoBot.class.getName()).log(Level.SEVERE, null, ex);
-            }
-            if (toDo.message.equals(todoFormatError)) {
-                reply.append(toDo);
+            if (message.startsWith("Hi") || message.startsWith("hi")) {
+                reply.append("Hi!");
+            } else if (message.startsWith("coo")) {
+                reply.append("coo!");
+            } else if (message.startsWith("flip")) {
+                System.out.println("Flip!");
+                String flip = flipACoin();
+                reply.append(flip);
+            } else if (message.startsWith("todo") || message.startsWith("Todo") || message.startsWith("ToDo")) {
+                ParsedTodoCommand toDo = null;
+                try {
+                    toDo = newTodo(pm, dbConn);
+                } catch (SQLException ex) {
+                    Logger.getLogger(ToDoBot.class.getName()).log(Level.SEVERE, null, ex);
+                    System.out.println("Hitting here");
+                }
+                if (toDo.message.equals(todoFormatError)) {
+                    reply.append(toDo.message);
+                } else {
+                    reply.append("New todo: ").append(toDo.message).append(" stored!");
+                }
             } else {
-                reply.append("New todo: ").append(toDo.message).append(" stored!");
+                reply.append("Not a valid command.");
             }
-        } else {
-            reply.append("Not a valid command.");
         }
-
         writer.println(reply.toString());
         System.out.println(reply.toString());
     }
 
+    //To avoid flooding channels, the ~todotoday response is sent in a PM to the user
+    //The method finds all of the to-dos set to be done today by the given user
+    static StringBuilder privateReply(ParsedMessage pm, Connection dbConn) throws SQLException {
+        Statement stat = dbConn.createStatement();
+        LocalDate ld = new LocalDate(DateTimeZone.UTC);
+        String todaysDate = ld.toString("dd/MM/yyyy");
+        
+        StringBuilder reply = new StringBuilder("PRIVMSG ");
+        reply.append(pm.username).append(" :Your to-dos for today are: ");
+        
+        stat.execute("SELECT * FROM ToDoList WHERE user='"+pm.username+"' AND date='"+todaysDate+"'");
+        
+        ResultSet rs = stat.getResultSet();
+        while(rs.next()) {
+            reply.append("@").append(rs.getString("time")).append(" ").append(rs.getString("todo")).append("   ");
+        }
+                
+        return reply;    
+    }
+    
     //Creates a new todo object if a todo is found.
     //Saves the new todo into the database.
     static ParsedTodoCommand newTodo(ParsedMessage pm, Connection dbConn) throws SQLException {
@@ -394,6 +420,7 @@ public class ToDoBot {
         } else if (timeMatcher.find()) {
             pd = validateTime(todo);
         } else {
+            todo = todoFormatError;
         }
 
         System.out.println("pd.date: " + pd.date);
@@ -435,7 +462,7 @@ public class ToDoBot {
         ParsedTodoCommand pd = new ParsedTodoCommand();
         DateTime dt = new DateTime();
         DateTimeFormatter dayFormatter = DateTimeFormat.forPattern("dd/MM/yyyy");
-
+       
         String date = todo.substring(1, 11);
 
         try {
@@ -503,7 +530,7 @@ public class ToDoBot {
 
     //Saves the todo in the database
     static void saveTodo(ParsedMessage pm, ParsedTodoCommand ptd, Connection conn) throws SQLException {
-        PreparedStatement prep = conn.prepareStatement("INSERT INTO todo3 VALUES (?, ?, ?, ?);");
+        PreparedStatement prep = conn.prepareStatement("INSERT INTO ToDoList VALUES (?, ?, ?, ?);");
 
         prep.setString(1, ptd.date);
         prep.setString(2, ptd.time);
