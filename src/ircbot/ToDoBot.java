@@ -45,16 +45,6 @@ public class ToDoBot {
                 stat.executeUpdate("INSERT INTO ToDoList VALUES ('0', '0', '0', '0');");
             } else {
                 System.out.println("Table exists");
-                /*ResultSet rs = stat.executeQuery("SELECT * FROM ToDoList;");
-                while (rs.next()) {
-                    System.out.print(rs.getString("date"));
-                    System.out.print(" ");
-                    System.out.print(rs.getString("time"));
-                    System.out.print(" ");
-                    System.out.print(rs.getString("user"));
-                    System.out.print(" ");
-                    System.out.println(rs.getString("todo"));
-                }*/
             }
         } catch (SQLException ex) {
             Logger.getLogger(ToDoBot.class.getName()).log(Level.SEVERE, null, ex);
@@ -76,10 +66,21 @@ public class ToDoBot {
                 break;
             }
         }
-
+        
+        LocalDate ld = null;
+        LocalDate od = new LocalDate(DateTimeZone.UTC);
+        String oldDate = od.toString("dd/MM/yyyy");
+        
         //Start monitoring message
         while ((inputLine = bufferedReader.readLine()) != null) {
             monitorInputStream(socket, inputLine, dbConn);
+            ld = new LocalDate(DateTimeZone.UTC);
+            ld.toString("dd/MM/yyyy");
+            if(!oldDate.equals(ld.toString("dd/MM/yyyy"))){
+                oldDate = ld.toString("dd/MM/yyyy");
+                findTodaysToDos(dbConn, socket, ld);
+            }
+            
         }
 
         //Close everything
@@ -135,6 +136,20 @@ public class ToDoBot {
         }
     }
 
+    static void findTodaysToDos(Connection dbConn, Socket socket, LocalDate ld) throws SQLException, IOException {
+        Statement stat = dbConn.createStatement();
+        ResultSet rs = stat.executeQuery("SELECT * FROM ToDoList WHERE date='"+ld.toString("dd/MM/yyyy")+"'");
+        StringBuilder todoMessage = null;
+        
+        while(rs.next()) {
+            todoMessage.append("PRIVMSG ").append(rs.getString("user")).append(" :To do today: ").
+                    append(rs.getString("time")).append(" ").append(rs.getString("todo"));
+            PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
+            writer.println(todoMessage.toString());
+            System.out.println("Todo: "+todoMessage);
+        }
+    }
+            
     //Check whether input line contains a PRIVMSG or INVITE
     static ParsedMessage checkMessageType(String inputLine, Socket socket) throws IOException {
         ParsedMessage parsedMessage = new ParsedMessage();
