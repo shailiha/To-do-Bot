@@ -66,21 +66,21 @@ public class ToDoBot {
                 break;
             }
         }
-        
+
         LocalDate ld = null;
         LocalDate od = new LocalDate(DateTimeZone.UTC);
         String oldDate = od.toString("dd/MM/yyyy");
-        
+
         //Start monitoring message
         while ((inputLine = bufferedReader.readLine()) != null) {
             monitorInputStream(socket, inputLine, dbConn);
             ld = new LocalDate(DateTimeZone.UTC);
             ld.toString("dd/MM/yyyy");
-            if(!oldDate.equals(ld.toString("dd/MM/yyyy"))){
+            if (!oldDate.equals(ld.toString("dd/MM/yyyy"))) {
                 oldDate = ld.toString("dd/MM/yyyy");
                 findTodaysToDos(dbConn, socket, ld);
             }
-            
+
         }
 
         //Close everything
@@ -138,18 +138,18 @@ public class ToDoBot {
 
     static void findTodaysToDos(Connection dbConn, Socket socket, LocalDate ld) throws SQLException, IOException {
         Statement stat = dbConn.createStatement();
-        ResultSet rs = stat.executeQuery("SELECT * FROM ToDoList WHERE date='"+ld.toString("dd/MM/yyyy")+"'");
+        ResultSet rs = stat.executeQuery("SELECT * FROM ToDoList WHERE date='" + ld.toString("dd/MM/yyyy") + "'");
         StringBuilder todoMessage = null;
-        
-        while(rs.next()) {
+
+        while (rs.next()) {
             todoMessage.append("PRIVMSG ").append(rs.getString("user")).append(" :To do today: ").
                     append(rs.getString("time")).append(" ").append(rs.getString("todo"));
             PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
             writer.println(todoMessage.toString());
-            System.out.println("Todo: "+todoMessage);
+            System.out.println("Todo: " + todoMessage);
         }
     }
-            
+
     //Check whether input line contains a PRIVMSG or INVITE
     static ParsedMessage checkMessageType(String inputLine, Socket socket) throws IOException {
         ParsedMessage parsedMessage = new ParsedMessage();
@@ -188,11 +188,6 @@ public class ToDoBot {
     //Check if input line is a PRIVMSG
     static boolean checkPRIVMSG(String inputLine) {
         boolean priv = false;
-        /*Pattern privPattern = Pattern.compile(":.+!.+@.+ PRIVMSG #");
-        Matcher privMatch = privPattern.matcher(inputLine);
-        if(privMatch.matches()){
-        System.out.println("Private message");
-        }*/
         if (inputLine.contains(" PRIVMSG ")) {
             priv = true;
         }
@@ -289,7 +284,7 @@ public class ToDoBot {
         }
 
         if (possibleCommand) {
-            if (pm.username.equalsIgnoreCase("shai")) {
+            if (pm.username.equalsIgnoreCase("shai") || pm.username.equalsIgnoreCase("monk")) {
                 if (!respondToCommands(pm, socket)) {
                     respondToAlias(pm, socket, dbConn);
                 }
@@ -313,13 +308,28 @@ public class ToDoBot {
                 writer.println("PART " + channelToLeave + " :Bye bye");
                 System.out.println("PART " + channelToLeave + " :Bye bye");
             }
-        } else if (pm.message.equals("Quit")) {
+        } else if (pm.message.equalsIgnoreCase("quit")) {
             writer.println("QUIT :coo :(");
             System.out.println("QUIT :coo :(");
-        } else if (pm.message.startsWith("Join")) {
-            String channelToJoin = pm.message.subSequence(pm.message.indexOf("Join") + 5, pm.message.length()).toString();
+        } else if (pm.message.toLowerCase().startsWith("join")) {
+            String channelToJoin = pm.message.subSequence(pm.message.toLowerCase().indexOf("join") + 5, pm.message.length()).toString();
             writer.println("JOIN " + channelToJoin);
             System.out.println("JOIN " + channelToJoin);
+        } else if (pm.message.toLowerCase().startsWith("raw")) {
+            StringBuilder doAsTold = new StringBuilder("");
+            System.out.println("message: "+pm.message);
+            doAsTold.append(pm.message.substring(pm.message.toLowerCase().indexOf("raw") + 4));
+            writer.println(doAsTold);
+            System.out.println(doAsTold);
+        } else if (pm.message.toLowerCase().startsWith("say")) {
+            StringBuilder doAsTold = new StringBuilder("");
+            int locationOfChannel = pm.message.indexOf(" ", pm.message.toLowerCase().indexOf("say"))+1;
+            String channel = pm.message.substring(locationOfChannel, pm.message.indexOf(" ", locationOfChannel));
+            String message = pm.message.substring(pm.message.indexOf(" ", locationOfChannel)+1);
+            doAsTold.append("PRIVMSG ").append(channel).append(" :").append(message);
+
+            writer.println(doAsTold);
+            System.out.println(doAsTold);
         } else {
             command = false;
         }
@@ -333,20 +343,20 @@ public class ToDoBot {
         PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
         String message = pm.message;
         StringBuilder reply = null;
-        if (message.startsWith("todotoday")){
+        if (message.toLowerCase().startsWith("todotoday")) {
             reply = privateReply(pm, dbConn);
-        } else {     
+        } else {
             reply = new StringBuilder("PRIVMSG ").append(pm.channel).append(" :").append(pm.username).append(": ");
 
-            if (message.startsWith("Hi") || message.startsWith("hi")) {
+            if (message.toLowerCase().startsWith("hi")) {
                 reply.append("Hi!");
-            } else if (message.startsWith("coo")) {
+            } else if (message.toLowerCase().startsWith("coo")) {
                 reply.append("coo!");
-            } else if (message.startsWith("flip")) {
+            } else if (message.toLowerCase().startsWith("flip")) {
                 System.out.println("Flip!");
                 String flip = flipACoin();
                 reply.append(flip);
-            } else if (message.startsWith("todo") || message.startsWith("Todo") || message.startsWith("ToDo")) {
+            } else if (message.toLowerCase().startsWith("todo")) {
                 ParsedTodoCommand toDo = null;
                 try {
                     toDo = newTodo(pm, dbConn);
@@ -373,20 +383,20 @@ public class ToDoBot {
         Statement stat = dbConn.createStatement();
         LocalDate ld = new LocalDate(DateTimeZone.UTC);
         String todaysDate = ld.toString("dd/MM/yyyy");
-        
+
         StringBuilder reply = new StringBuilder("PRIVMSG ");
         reply.append(pm.username).append(" :Your to-dos for today are: ");
-        
-        stat.execute("SELECT * FROM ToDoList WHERE user='"+pm.username+"' AND date='"+todaysDate+"'");
-        
+
+        stat.execute("SELECT * FROM ToDoList WHERE user='" + pm.username + "' AND date='" + todaysDate + "'");
+
         ResultSet rs = stat.getResultSet();
-        while(rs.next()) {
+        while (rs.next()) {
             reply.append("@").append(rs.getString("time")).append(" ").append(rs.getString("todo")).append("   ");
         }
-                
-        return reply;    
+
+        return reply;
     }
-    
+
     //Creates a new todo object if a todo is found.
     //Saves the new todo into the database.
     static ParsedTodoCommand newTodo(ParsedMessage pm, Connection dbConn) throws SQLException {
@@ -477,7 +487,7 @@ public class ToDoBot {
         ParsedTodoCommand pd = new ParsedTodoCommand();
         DateTime dt = new DateTime();
         DateTimeFormatter dayFormatter = DateTimeFormat.forPattern("dd/MM/yyyy");
-       
+
         String date = todo.substring(1, 11);
 
         try {
