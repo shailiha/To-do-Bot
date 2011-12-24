@@ -37,14 +37,24 @@ public class ToDoBot {
         try {
             dbConn = createDatabaseConnection();
             DatabaseMetaData meta = dbConn.getMetaData();
-            ResultSet results = meta.getTables(null, null, "ToDoList", null);
-            Statement stat = dbConn.createStatement();
-            if (!results.next()) {
-                System.out.println("Creating table");
-                stat.execute("CREATE TABLE ToDoList (date TEXT NOT NULL, time TEXT NOT NULL, user TEXT NOT NULL, todo TEXT NOT NULL);");
-                stat.executeUpdate("INSERT INTO ToDoList VALUES ('0', '0', '0', '0');");
+            ResultSet resultsToDo = meta.getTables(null, null, "ToDoList", null);
+            Statement statToDo = dbConn.createStatement();
+            if (!resultsToDo.next()) {
+                System.out.println("Creating todo table");
+                statToDo.execute("CREATE TABLE ToDoList (date TEXT NOT NULL, time TEXT NOT NULL, user TEXT NOT NULL, todo TEXT NOT NULL);");
+                statToDo.executeUpdate("INSERT INTO ToDoList VALUES ('0', '0', '0', '0');");
             } else {
-                System.out.println("Table exists");
+                System.out.println("Todo table exists");
+            }
+            ResultSet resultsRead = meta.getTables(null, null, "ToRead", null);
+            Statement statRead = dbConn.createStatement();
+            if (!resultsRead.next()) {
+                System.out.println("Creating reading table");
+                statRead.execute("CREATE TABLE ToRead (date TEXT NOT NULL, user TEXT NOT NULL, toread TEXT NOT NULL);");
+                statRead.executeUpdate("INSERT INTO ToRead VALUES ('0', '0', '0');");
+            } else {
+                System.out.println(resultsRead.toString());
+                System.out.println("Reading table exists");
             }
         } catch (SQLException ex) {
             Logger.getLogger(ToDoBot.class.getName()).log(Level.SEVERE, null, ex);
