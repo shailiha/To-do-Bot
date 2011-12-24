@@ -80,13 +80,20 @@ public class ToDoBot {
         LocalDate ld = null;
         LocalDate od = new LocalDate(DateTimeZone.UTC);
         String oldDate = od.toString("dd/MM/yyyy");
+        //DateTime ltd = null;
+        //DateTime otd = new DateTime(DateTimeZone.UTC);
+        //oldDate = otd.toString("dd/MM/yyyy HH:mm");
 
         //Start monitoring message
         while ((inputLine = bufferedReader.readLine()) != null) {
             monitorInputStream(socket, inputLine, dbConn);
             ld = new LocalDate(DateTimeZone.UTC);
-            ld.toString("dd/MM/yyyy");
-            if (!oldDate.equals(ld.toString("dd/MM/yyyy"))) {
+            //ltd = new DateTime(DateTimeZone.UTC);
+            //String newDate = ltd.toString("dd/MM/yyyy HH:mm");
+            String newDate = ld.toString("dd/MM/yyyy");
+            
+            if (!oldDate.equals(newDate)) {
+                //oldDate = ld.toString("dd/MM/yyyy HH:mm");
                 oldDate = ld.toString("dd/MM/yyyy");
                 findTodaysToDos(dbConn, socket, ld);
             }
@@ -148,15 +155,17 @@ public class ToDoBot {
 
     static void findTodaysToDos(Connection dbConn, Socket socket, LocalDate ld) throws SQLException, IOException {
         Statement stat = dbConn.createStatement();
-        ResultSet rs = stat.executeQuery("SELECT * FROM ToDoList WHERE date='" + ld.toString("dd/MM/yyyy") + "'");
-        StringBuilder todoMessage = null;
+        String date = ld.toString("dd/MM/yyyy");
 
+        ResultSet rs = stat.executeQuery("SELECT * FROM ToDoList WHERE date='"+date+"'");
+        StringBuilder todoMessage = new StringBuilder("");
         while (rs.next()) {
             todoMessage.append("PRIVMSG ").append(rs.getString("user")).append(" :To do today: ").
                     append(rs.getString("time")).append(" ").append(rs.getString("todo"));
             PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
             writer.println(todoMessage.toString());
             System.out.println("Todo: " + todoMessage);
+            todoMessage = new StringBuilder("");
         }
     }
 
