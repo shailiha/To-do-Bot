@@ -159,6 +159,7 @@ public class ToDoBot {
 
         ResultSet rs = stat.executeQuery("SELECT * FROM ToDoList WHERE date='"+date+"'");
         StringBuilder todoMessage = new StringBuilder("");
+        //NULL POINTER EXCEPTION
         while (rs.next()) {
             todoMessage.append("PRIVMSG ").append(rs.getString("user")).append(" :To do today: ").
                     append(rs.getString("time")).append(" ").append(rs.getString("todo"));
@@ -231,7 +232,7 @@ public class ToDoBot {
                 username.append(inputLine.charAt(i));
                 i++;
             }
-            System.out.println("Username: " + username);
+            //System.out.println("Username: " + username);
         } else {
             username.append(":codd");
             username.replace(0, 0, inputLine);
@@ -250,7 +251,7 @@ public class ToDoBot {
             channel.append(inputLine.charAt(index));
             index++;
         }
-        System.out.println("Channel: " + channel);
+        //System.out.println("Channel: " + channel);
         return channel.toString();
     }
 
@@ -266,7 +267,7 @@ public class ToDoBot {
             index++;
         }
 
-        System.out.println("Message: " + message);
+        //System.out.println("Message: " + message);
         return message.toString();
 
     }
@@ -361,9 +362,13 @@ public class ToDoBot {
     static void respondToAlias(ParsedMessage pm, Socket socket, Connection dbConn) throws IOException, SQLException {
         PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
         String message = pm.message;
-        StringBuilder reply = null;
+        StringBuilder reply = new StringBuilder("");
         if (message.toLowerCase().startsWith("todotoday")) {
-            reply = privateReply(pm, dbConn);
+            String collatedToDos = collateToDoToday(pm.username, dbConn);
+            reply.append(privateReply(pm.username, collatedToDos));
+        } else if (message.toLowerCase().startsWith("readselection") || message.toLowerCase().startsWith("read10") || message.toLowerCase().startsWith("readten")) {
+            String randomToReads = selectTenToReads(pm.username, dbConn);
+            reply.append((privateReply(pm.username, randomToReads)));
         } else {
             reply = new StringBuilder("PRIVMSG ").append(pm.channel).append(" :").append(pm.username).append(": ");
 
@@ -388,6 +393,17 @@ public class ToDoBot {
                 } else {
                     reply.append("New todo: ").append(toDo.message).append(" stored!");
                 }
+            } else if(message.toLowerCase().startsWith("toread")){
+                boolean storedSuccessfully = newToRead(pm, dbConn);
+                if (storedSuccessfully) {
+                    reply.append("Stored!");
+                } else {
+                    reply.append("There was an error while trying to save.");
+                }
+            } else if(message.toLowerCase().startsWith("bored") || message.toLowerCase().startsWith("readfirst")){
+                reply.append(retrieveFirstToRead(pm, dbConn));
+            } else if(message.toLowerCase().startsWith("remove") || message.toLowerCase().startsWith("delete")){
+                reply.append(removeToRead(pm, dbConn));
             } else {
                 reply.append("Not a valid command.");
             }
@@ -398,24 +414,11 @@ public class ToDoBot {
 
     //To avoid flooding channels, the ~todotoday response is sent in a PM to the user
     //The method finds all of the to-dos set to be done today by the given user
-    static StringBuilder privateReply(ParsedMessage pm, Connection dbConn) throws SQLException {
-        Statement stat = dbConn.createStatement();
-        LocalDate ld = new LocalDate(DateTimeZone.UTC);
-        String todaysDate = ld.toString("dd/MM/yyyy");
-
-        StringBuilder reply = new StringBuilder("PRIVMSG ");
-        reply.append(pm.username).append(" :Your to-dos for today are: ");
-
-        stat.execute("SELECT * FROM ToDoList WHERE user='" + pm.username + "' AND date='" + todaysDate + "'");
-
-        ResultSet rs = stat.getResultSet();
-        while (rs.next()) {
-            reply.append("@").append(rs.getString("time")).append(" ").append(rs.getString("todo")).append("   ");
-        }
-
-        return reply;
+    static String privateReply(String username, String message) throws SQLException {
+        StringBuilder reply = new StringBuilder("PRIVMSG ").append(username).append(" :").append(message);
+        return reply.toString();
     }
-
+            
     //Creates a new todo object if a todo is found.
     //Saves the new todo into the database.
     static ParsedTodoCommand newTodo(ParsedMessage pm, Connection dbConn) throws SQLException {
@@ -442,7 +445,34 @@ public class ToDoBot {
         }
         return todo;
     }
-
+    
+    //Stores a new 'to-read' item into the ToRead table
+    static boolean newToRead(ParsedMessage pm, Connection dbConn) {
+        boolean stored = false;
+        try {
+            String toRead = pm.message.substring(7);
+            System.out.println("toRead "+toRead);
+            PreparedStatement prep = dbConn.prepareStatement("INSERT INTO ToRead VALUES (?, ?, ?)");
+            LocalDate ld = new LocalDate(DateTimeZone.UTC);
+            String currentDate = ld.toString("dd/MM/yyyy");
+            
+            prep.setString(1, currentDate);
+            prep.setString(2, pm.username);
+            prep.setString(3, toRead);
+            prep.addBatch();
+            
+            dbConn.setAutoCommit(false);
+            prep.executeBatch();
+            dbConn.setAutoCommit(true);
+            
+            stored = true;            
+        } catch (SQLException ex) {
+            Logger.getLogger(ToDoBot.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        
+        return stored;
+    }
+    
     //Checks which todo format was used (time-date, date or time) and calls the correct todo parser
     //Index = location of '@' symbol
     static ParsedTodoCommand parseDateTime(String pm, int index) {
@@ -587,6 +617,77 @@ public class ToDoBot {
         conn.setAutoCommit(true);
     }
 
+    //SELECTS and returns all of the to-dos for a user that are scheduled for today
+    static String collateToDoToday(String username, Connection dbConn) throws SQLException {
+        StringBuilder collatedToDos = new StringBuilder("");
+        
+        Statement stat = dbConn.createStatement();
+        LocalDate ld = new LocalDate(DateTimeZone.UTC);
+        String todaysDate = ld.toString("dd/MM/yyyy");
+
+        stat.execute("SELECT * FROM ToDoList WHERE user='" + username + "' AND date='" + todaysDate + "'");
+        ResultSet rs = stat.getResultSet();
+        
+        collatedToDos.append(username).append("Your to-dos for today are: ");
+        while (rs.next()) {
+            collatedToDos.append("@").append(rs.getString("time")).append(" ").append(rs.getString("todo")).append("   ");
+        }
+
+        return collatedToDos.toString();
+    }
+    
+    //Retrives the oldest to-read stored by a user
+    static String retrieveFirstToRead(ParsedMessage pm, Connection dbConn){
+        StringBuilder firstToRead = new StringBuilder("");
+        
+        try {
+            Statement stat = dbConn.createStatement();
+            ResultSet rs = stat.executeQuery("SELECT * FROM ToRead WHERE user='"+pm.username+"' LIMIT 1");
+            
+            if(rs.next()){
+                firstToRead.append(rs.getString("toread"));
+            }
+            
+        } catch (SQLException ex) {
+            Logger.getLogger(ToDoBot.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        
+        return firstToRead.toString();
+    }
+    
+    // Selects 10 randon 'to-reads' from the database that were stored by the user
+    static String selectTenToReads(String username, Connection dbConn) throws SQLException {
+        StringBuilder selectedReads = new StringBuilder("");
+        
+        Statement stat = dbConn.createStatement();
+        stat.execute("SELECT * FROM ToRead WHERE user='"+username+"' ORDER BY RANDOM() LIMIT 10;");
+        ResultSet rs = stat.getResultSet();
+        int num = 1;
+        while(rs.next()) {
+            selectedReads.append(num).append(") ").append(rs.getString("toread")).append(" (").append(rs.getString("date")).append(") ");
+            num++;
+        }
+        
+        return selectedReads.toString();
+    }
+    
+    //Remove a to-read as specified by the username and link(/to-read message)
+    static String removeToRead(ParsedMessage pm, Connection dbConn){
+        StringBuilder firstToRead = new StringBuilder("");
+        String read = pm.message.substring(7);
+        
+        try {
+            Statement stat = dbConn.createStatement();
+            stat.executeUpdate("DELETE FROM ToRead WHERE user='"+pm.username+"' AND toread='"+read+"';");
+            firstToRead.append("Deleted "+read);
+        } catch (SQLException ex) {
+            Logger.getLogger(ToDoBot.class.getName()).log(Level.SEVERE, null, ex);
+            firstToRead.append("Delete failed.");
+        }
+        
+        return firstToRead.toString();
+    }
+    
     //Request. 50/50 chance of returning Yes/No to a query
     static String flipACoin() {
         boolean flip = false;
